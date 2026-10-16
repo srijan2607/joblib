@@ -282,6 +282,91 @@ def test_numpy_scalar():
     assert hash(a) != hash(b)
 
 
+@parametrize("hash_name", ["md5", "sha1"])
+@parametrize(
+    "keys",
+    [
+        [complex(-1), complex(3)],
+        [1, "a"],
+        [(1,), ("a",)],
+        [b"a", "a"],
+    ],
+)
+def test_dict_fallback_distinguishes_digest_key_mapping(keys, hash_name):
+    # Fallback ordering uses key digests internally, but must not share its
+    # encoding with an ordinary dictionary containing those digest strings.
+    items = list(zip(keys, [7, 11]))
+    original = dict(items)
+    digest_keys = {hash(key): value for key, value in items}
+    expected = hash(original, hash_name=hash_name)
+    assert expected != hash(digest_keys, hash_name=hash_name)
+    for permutation in itertools.permutations(items):
+        assert hash(dict(permutation), hash_name=hash_name) == expected
+
+
+def test_dict_fallback_memory(tmp_path):
+    def count_complex_keys(mapping):
+        return sum(isinstance(key, complex) for key in mapping)
+
+    original = {complex(-1): 7, complex(3): 11}
+    digest_keys = {hash(key): value for key, value in original.items()}
+    cached = Memory(tmp_path, verbose=0).cache(count_complex_keys)
+    assert cached(original) == count_complex_keys(original) == 2
+    assert cached(digest_keys) == count_complex_keys(digest_keys) == 0
+
+
+def test_dict_fallback_equal_key_digests():
+    # Distinct NaN keys can have identical serialized representations. Keep
+    # the existing value-based tie-break when ordering their items.
+    first_nan = float("nan")
+    second_nan = float("nan")
+    assert first_nan != second_nan
+    assert hash(first_nan) == hash(second_nan)
+    items = [(first_nan, 7), (second_nan, 11), (3j, 0)]
+    expected = hash(dict(items))
+    for permutation in itertools.permutations(items):
+        assert hash(dict(permutation)) == expected
+
+
+def test_dict_fallback_aliased_tuple_keys():
+    first_key, second_key = (float("nan"),), (float("nan"),)
+    assert first_key != second_key
+    assert hash(first_key) == hash(second_key)
+    items = [(first_key, first_key), (second_key, first_key), (2j, 0)]
+    original = dict(items)
+    expected = hash(original)
+    for permutation in itertools.permutations(items):
+        reordered = dict(permutation)
+        assert original == reordered
+        assert hash(reordered) == expected
+
+
+class _AliasHashKey:
+    def __init__(self, value):
+        self.value = value
+
+    def __reduce__(self):
+        return (_AliasHashKey, (self.value,))
+
+
+def test_dict_fallback_aliased_custom_keys():
+    shared = []
+    first_key, second_key = _AliasHashKey(shared), _AliasHashKey([])
+    assert hash(first_key) == hash(second_key)
+    original = {first_key: shared, second_key: shared}
+    reordered = {second_key: shared, first_key: shared}
+    assert original == reordered
+    assert hash(original) == hash(reordered)
+
+
+def test_dict_fallback_nested_and_recursive_values():
+    original = {complex(-1): [], complex(3): {1: "a", "a": 1}}
+    original[complex(-1)].append(original)
+    reversed_items = {complex(3): {"a": 1, 1: "a"}, complex(-1): []}
+    reversed_items[complex(-1)].append(reversed_items)
+    assert hash(original) == hash(reversed_items)
+
+
 def test_dict_hash(tmpdir):
     # Check that dictionaries hash consistently, even though the ordering
     # of the keys is not guaranteed

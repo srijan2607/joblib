@@ -142,11 +142,14 @@ class Hasher(Pickler):
             # but we keep it in a try as it's faster.
             Pickler._batch_setitems(self, iter(sorted(items)), *args)
         except TypeError:
-            # If keys are unorderable, sorting them using their hash. This is
-            # slower but works in any case.
-            Pickler._batch_setitems(
-                self, iter(sorted((hash(k), v) for k, v in items)), *args
-            )
+            # Order unorderable keys by their hashes, as before. Mark this
+            # representation at an opcode boundary so it cannot collide with
+            # an ordinary dictionary whose keys are the same digest strings.
+            # This stream is only hashed, never unpickled; '_' is not a pickle
+            # opcode. Keeping the hashed keys also preserves alias handling.
+            hashed_items = sorted((hash(k), v) for k, v in items)
+            self.write(b"_HASHED_DICT")
+            Pickler._batch_setitems(self, iter(hashed_items), *args)
 
     def save_set(self, set_items):
         # forces order of items in Set to ensure consistent hash

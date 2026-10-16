@@ -4,6 +4,13 @@ Release Notes
 In Development
 --------------
 
+- Fix dictionary hashing with unorderable keys to distinguish its internal
+  representation from an ordinary dictionary keyed by digest strings. This
+  prevents incorrect reuse of ``Memory`` results with distinct dictionary inputs
+  in a fresh cache. Fallback dictionary hashes change, but previously contaminated
+  entries at unchanged hashes can survive an upgrade: clear potentially affected
+  ``Memory`` caches before reusing them.
+
 - ``FileSystemStoreBackend`` (and hence ``Memory``) now stores its items using the format
   "abc/defghijklmnopqrstuvwxyzabcdef/output.pkl" instead of
   "abcdefghijklmnopqrstuvwxyzabcdef/output.pkl" in order to limit the number
